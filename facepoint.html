@@ -1,0 +1,239 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>脸部穴位定位Demo（图像 + 视频 + 穴位问答）</title>
+<style>
+/* 基本样式加强版 */
+body {
+    margin: 0;
+    padding: 0;
+    background: linear-gradient(to right, #0f2027, #203a43, #2c5364);
+    font-family: "Helvetica Neue", sans-serif;
+    color: #fff;
+}
+.container {
+    width: 90%;
+    max-width: 1000px;
+    margin: 40px auto;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 15px;
+    padding: 20px 30px;
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+    backdrop-filter: blur(5px);
+}
+h1, h2 {
+    text-align: center;
+}
+button {
+    background: linear-gradient(to right, #00c6ff, #0072ff);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    margin-top: 10px;
+    margin-bottom: 20px;
+    border-radius: 30px;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+button:hover {
+    transform: scale(1.05);
+    box-shadow: 0px 0px 8px #00c6ff;
+}
+select, textarea, input[type="file"] {
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
+    border-radius: 10px;
+    border: none;
+}
+canvas {
+    margin-top: 20px;
+    border: 2px solid #00c6ff;
+    width: 100%;
+    background: #fff;
+}
+#chat_response {
+    margin-top: 10px;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>脸部穴位定位系统</h1>
+
+<div id="upload_section">
+<h2>上传图片检测</h2>
+<input type="file" id="upload_image" accept="image/*">
+<select id="modelType_image">
+<option value="n">n版模型</option>
+<option value="m">m版模型</option>
+</select>
+<button onclick="predictImage()">上传图片识别</button>
+
+<h2>上传视频检测</h2>
+<input type="file" id="upload_video" accept="video/*">
+<select id="modelType_video">
+<option value="n">n版模型</option>
+<option value="m">m版模型</option>
+</select>
+<button onclick="predictVideo()">上传视频识别</button>
+
+<canvas id="canvas"></canvas>
+</div>
+
+<div id="chat_container">
+<h2>穴位问答助手</h2>
+<select id="model_selector">
+<option value="a8adaa4a-6689-406b-b02f-3760e0a7251e">模型1（doubao-1-5-pro-32k）</option>
+<option value="ae7f030a-4e48-4c74-a7e0-ccd5883badc1">模型2（doubao-1-5-pro-thinking）</option>
+</select>
+<textarea id="chat_input" rows="3" placeholder="请输入穴位问题..."></textarea><br>
+<button onclick="askChat()">发送提问</button>
+<div id="chat_response"></div>
+</div>
+</div>
+
+<script>
+async function askChat() {
+    const question = document.getElementById('chat_input').value;
+    const selectedApiKey = document.getElementById('model_selector').value;
+    const responseDiv = document.getElementById('chat_response');
+
+    const url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
+    const headers = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${selectedApiKey}`
+    };
+    const body = JSON.stringify({
+        model: "doubao-1-5-pro-32k-250115",
+        messages: [
+            { role: "system", content: "你是一名中医穴位专家，请根据穴位和按摩知识精确回复用户问题。" },
+            { role: "user", content: question }
+        ]
+    });
+
+    responseDiv.innerText = "正在回复中...";
+
+    try {
+        const response = await fetch(url, {
+            method: "POST",
+            headers: headers,
+            body: body
+        });
+        const data = await response.json();
+        if (data.choices && data.choices.length > 0) {
+            responseDiv.innerText = data.choices[0].message.content;
+        } else {
+            responseDiv.innerText = "未返回有效回答！";
+        }
+    } catch (error) {
+        responseDiv.innerText = "请求失败！";
+    }
+}
+
+async function predictImage() {
+    const fileInput = document.getElementById('upload_image');
+    const modelType = document.getElementById('modelType_image').value;
+    if (!fileInput.files[0]) {
+        alert("请先选择图片！");
+        return;
+    }
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    formData.append('model_type', modelType);
+
+    const response = await fetch('http://workspace.featurize.cn:27453/predict/', {
+        method: 'POST',
+        body: formData
+    });
+    const result = await response.json();
+
+    if (result.type === 'image') {
+        const img = new Image();
+        img.src = URL.createObjectURL(fileInput.files[0]);
+        img.onload = function() {
+            const canvas = document.getElementById('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            ctx.fillStyle = "red";
+            ctx.strokeStyle = "blue";
+            result.keypoints.forEach(([x, y]) => {
+                const clippedX = Math.min(Math.max(x, 0), 1);
+                const clippedY = Math.min(Math.max(y, 0), 1);
+                ctx.beginPath();
+                ctx.arc(clippedX * img.width, clippedY * img.height, 5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+            });
+        }
+    } else {
+        alert("返回类型错误！");
+    }
+}
+
+async function predictVideo() {
+    const fileInput = document.getElementById('upload_video');
+    const modelType = document.getElementById('modelType_video').value;
+    if (!fileInput.files[0]) {
+        alert("请先选择视频！");
+        return;
+    }
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    formData.append('model_type', modelType);
+
+    const response = await fetch('http://workspace.featurize.cn:27453/predict/', {
+        method: 'POST',
+        body: formData
+    });
+    const result = await response.json();
+
+    if (result.type === 'video') {
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let videoElement = document.createElement('video');
+        videoElement.src = URL.createObjectURL(fileInput.files[0]);
+        videoElement.muted = true;
+        videoElement.play();
+
+        videoElement.addEventListener('play', function() {
+            canvas.width = videoElement.videoWidth;
+            canvas.height = videoElement.videoHeight;
+
+            let frameIndex = 0;
+
+            function drawFrame() {
+                if (videoElement.paused || videoElement.ended) return;
+                ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                if (frameIndex < result.frames.length) {
+                    const keypoints = result.frames[frameIndex];
+                    ctx.fillStyle = "red";
+                    ctx.strokeStyle = "blue";
+                    keypoints.forEach(([x, y]) => {
+                        const clippedX = Math.min(Math.max(x, 0), 1);
+                        const clippedY = Math.min(Math.max(y, 0), 1);
+                        ctx.beginPath();
+                        ctx.arc(clippedX * canvas.width, clippedY * canvas.height, 5, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.stroke();
+                    });
+                }
+                frameIndex++;
+                requestAnimationFrame(drawFrame);
+            }
+            drawFrame();
+        });
+    } else {
+        alert("返回类型错误！");
+    }
+}
+</script>
+</body>
+</html>
